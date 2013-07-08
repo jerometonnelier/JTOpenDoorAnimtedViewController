@@ -9,6 +9,18 @@
 #import "JTOpenDoorViewController.h"
 #import <QuartzCore/QuartzCore.h>
 
+NSUInteger DeviceSystemMajorVersion();
+NSUInteger DeviceSystemMajorVersion() {
+    static NSUInteger _deviceSystemMajorVersion = -1;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        _deviceSystemMajorVersion = [[[[[UIDevice currentDevice] systemVersion] componentsSeparatedByString:@"."] objectAtIndex:0] intValue];
+    });
+    return _deviceSystemMajorVersion;
+}
+
+#define PRIOR_TO_IOS_7 (DeviceSystemMajorVersion() < 7)
+
 #define LEFT_FRAME CGRectMake(0, 0, CGRectGetMidX(self.view.frame), CGRectGetHeight(self.view.frame))
 #define RIGHT_FRAME CGRectMake(CGRectGetMidX(self.view.frame), 0, CGRectGetMidX(self.view.frame), CGRectGetHeight(self.view.frame))
 
@@ -37,8 +49,13 @@
 - (void)viewDidLoad
 {
     [super viewDidLoad];
+    CGFloat offset = 0;
+    if (PRIOR_TO_IOS_7)
+    {
+        offset = [[UIApplication sharedApplication] statusBarFrame].size.height;
+    }
 	// Do any additional setup after loading the view, typically from a nib.
-    self.imageView = [[UIImageView alloc] initWithFrame:CGRectMake(0, -20, CGRectGetWidth(self.view.frame), CGRectGetHeight(self.view.frame)+20)];
+    self.imageView = [[UIImageView alloc] initWithFrame:CGRectMake(0, -offset, CGRectGetWidth(self.view.frame), CGRectGetHeight(self.view.frame)+offset)];
     NSString* imageName;
     if ([[UIScreen mainScreen] bounds].size.height == 568 && [[UIScreen mainScreen] scale] == 2.0)
     {
@@ -58,11 +75,12 @@
     double delayInSeconds = 2.0;
     dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delayInSeconds * NSEC_PER_SEC));
     dispatch_after(popTime, dispatch_get_main_queue(), ^(void){
+    
         UIImage* leftImage = [self screenshotForRect:LEFT_FRAME];
         UIImage* rightImage = [self screenshotForRect:RIGHT_FRAME];
-        UIImageView* leftImageView = [[UIImageView alloc] initWithFrame:LEFT_FRAME];
+        __block UIImageView* leftImageView = [[UIImageView alloc] initWithFrame:LEFT_FRAME];
         leftImageView.image = leftImage;
-        UIImageView* rightImageView = [[UIImageView alloc] initWithFrame:RIGHT_FRAME];
+        __block UIImageView* rightImageView = [[UIImageView alloc] initWithFrame:RIGHT_FRAME];
         rightImageView.image = rightImage;
         
         // we add the target viewControllers's view above the imageView and shrink it a little bit
@@ -70,6 +88,7 @@
         self.targetViewController.view.frame = self.view.bounds;
         
         [self.imageView removeFromSuperview];
+        self.imageView = nil;
         [self.view insertSubview:rightImageView aboveSubview:self.targetViewController.view];
         [self.view insertSubview:leftImageView aboveSubview:self.targetViewController.view];
         
@@ -77,12 +96,14 @@
         [self setAnchorPoint:CGPointMake(1, 0.5) forView:rightImageView];
         
         [CATransaction begin];
+        [CATransaction setAnimationDuration:self.animationDuration];
         [CATransaction setCompletionBlock:^{
             [leftImageView removeFromSuperview];
             [rightImageView removeFromSuperview];
+            leftImageView = nil;
+            rightImageView = nil;
             if (self.delegate)
             {
-                [self.targetViewController.view removeFromSuperview];
                 [self.delegate didFinishAnimation];
             }
         }];
@@ -93,7 +114,9 @@
         t = CATransform3DRotate(t, 100.0f * M_PI / 180.0f, 0, 1, 0);
         t = CATransform3DScale(t, 0.7, 0.7, 0.7);
         leftTransformAnimation.toValue = [NSValue valueWithCATransform3D:t];
-        leftTransformAnimation.duration = self.animationDuration;
+//        leftTransformAnimation.duration = self.animationDuration;
+        leftTransformAnimation.removedOnCompletion = NO;
+        leftTransformAnimation.fillMode = kCAFillModeForwards;
         [leftImageView.layer addAnimation:leftTransformAnimation forKey:@"transform"];
         
         CABasicAnimation *rightTransformAnimation = [CABasicAnimation animationWithKeyPath: @"transform"];
@@ -102,7 +125,9 @@
         t2 = CATransform3DRotate(t2, -100.0f * M_PI / 180.0f, 0, 1, 0);
         t2 = CATransform3DScale(t2, 0.7, 0.7, 0.7);
         rightTransformAnimation.toValue = [NSValue valueWithCATransform3D:t2];
-        rightTransformAnimation.duration = self.animationDuration;
+//        rightTransformAnimation.duration = self.animationDuration;
+        rightTransformAnimation.removedOnCompletion = NO;
+        rightTransformAnimation.fillMode = kCAFillModeForwards;
         [rightImageView.layer addAnimation:rightTransformAnimation forKey:@"transform"];
         
         CABasicAnimation *translateTransformAnimation = [CABasicAnimation animationWithKeyPath: @"transform"];
@@ -111,11 +136,18 @@
         t3 = CATransform3DTranslate(t3, 0, 0, -3500);
         translateTransformAnimation.fromValue = [NSValue valueWithCATransform3D:t3];
         translateTransformAnimation.toValue = [NSValue valueWithCATransform3D:CATransform3DIdentity];
-        translateTransformAnimation.duration = self.animationDuration;
+        translateTransformAnimation.duration = self.animationDuration*0.9;
+        translateTransformAnimation.removedOnCompletion = YES;
+        translateTransformAnimation.fillMode = kCAFillModeForwards;
         [self.targetViewController.view.layer addAnimation:translateTransformAnimation forKey:@"transform"];
         
         [CATransaction commit];
     });
+}
+
+- (void)animationDidStop:(CAAnimation *)anim finished:(BOOL)flag
+{
+    NSLog(@"animationDidStop %@", anim);
 }
 
 -(void)resizeLayer:(CALayer*)layer to:(CGSize)size
